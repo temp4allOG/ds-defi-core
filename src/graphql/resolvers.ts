@@ -365,7 +365,8 @@ export function createResolvers(db: DB) {
         return submitted;
       },
 
-      autoAssignTask: async (_: unknown, { taskId }: { taskId: string }) => {
+      autoAssignTask: async (_: unknown, { taskId }: { taskId: string }, ctx: Context) => {
+        if (!ctx.agentId) throw new Error('Unauthorized');
         return new BountyMatcher(db).autoAssignTask(taskId);
       },
 
