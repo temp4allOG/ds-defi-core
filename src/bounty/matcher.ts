@@ -111,13 +111,50 @@ export class BountyMatcher {
   async findMatchingAgents(taskId: string, limit = 10): Promise<AgentMatch[]> {
     const [task] = await this.db.select().from(tasks).where(eq(tasks.id, taskId));
     if (!task) return [];
-    const candidates = await this.db.select().from(agents).where(eq(agents.isActive, true));
+
+    const requiredRank = LEVEL_RANK[task.requiredLevel || 'L1_WORKER'] ?? 1;
+    const requiredCaps = new Set(asStringArray(task.requiredCapabilities).map(c => c.toLowerCase()));
+    const maxCandidates = Math.max(limit * 5, 25);
+
+    const candidates = (await this.db
+      .select()
+      .from(agents)
+      .where(eq(agents.isActive, true))
+      .orderBy(desc(agents.reputationScore))
+      .limit(maxCandidates))
+      .filter(agent => {
+        const agentRank = LEVEL_RANK[agent.level] ?? 0;
+        if (agentRank < requiredRank) return false;
+        if (!requiredCaps.size) return true;
+        const agentCaps = new Set(asStringArray(agent.capabilities).map(c => c.toLowerCase()));
+        return [...requiredCaps].some(cap => agentCaps.has(cap));
+      });
+
     const matches = (await Promise.all(candidates.map(a => this.calculateMatchScore(a.id, taskId)))).filter(Boolean) as AgentMatch[];
     return matches.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
   async findMatchingTasks(agentId: string, limit = 10): Promise<AgentMatch[]> {
-    const openTasks = await this.db.select().from(tasks).where(eq(tasks.status, 'AVAILABLE')).orderBy(desc(tasks.bountyAmount));
+    const [agent] = await this.db.select().from(agents).where(and(eq(agents.id, agentId), eq(agents.isActive, true)));
+    if (!agent) return [];
+
+    const agentRank = LEVEL_RANK[agent.level] ?? 0;
+    const agentCaps = new Set(asStringArray(agent.capabilities).map(c => c.toLowerCase()));
+    const maxCandidates = Math.max(limit * 5, 25);
+
+    const openTasks = (await this.db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.status, 'AVAILABLE'))
+      .orderBy(desc(tasks.bountyAmount))
+      .limit(maxCandidates))
+      .filter(task => {
+        const requiredRank = LEVEL_RANK[task.requiredLevel || 'L1_WORKER'] ?? 1;
+        if (agentRank < requiredRank) return false;
+        const requiredCaps = asStringArray(task.requiredCapabilities).map(c => c.toLowerCase());
+        return !requiredCaps.length || requiredCaps.some(cap => agentCaps.has(cap));
+      });
+
     const matches = (await Promise.all(openTasks.map(t => this.calculateMatchScore(agentId, t.id)))).filter(Boolean) as AgentMatch[];
     return matches.sort((a, b) => b.score - a.score).slice(0, limit);
   }
