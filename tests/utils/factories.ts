@@ -1,6 +1,9 @@
-export function agentFactory(overrides = {}) {
+let counter = 0;
+function uid(prefix: string) { counter += 1; return `${prefix}-${counter}`; }
+
+export function agentFactory(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'agent-1',
+    id: uid('agent'),
     displayName: 'Test Agent',
     agentType: 'AI',
     level: 'L1_WORKER',
@@ -12,9 +15,9 @@ export function agentFactory(overrides = {}) {
   };
 }
 
-export function taskFactory(overrides = {}) {
+export function taskFactory(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'task-1',
+    id: uid('task'),
     title: 'Test bounty',
     description: 'A test bounty task',
     domain: 'WEB',
@@ -28,10 +31,10 @@ export function taskFactory(overrides = {}) {
   };
 }
 
-export function walletFactory(overrides = {}) {
+export function walletFactory(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'wallet-1',
-    agentId: 'agent-1',
+    id: uid('wallet'),
+    agentId: uid('agent'),
     chain: 'bitcoin',
     address: 'bc1qexample',
     cachedBalance: '0',

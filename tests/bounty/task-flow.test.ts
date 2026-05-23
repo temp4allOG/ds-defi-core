@@ -1,21 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { createMockDb } from '../utils/mocks.js';
-import { taskFactory } from '../utils/factories.js';
+import { taskFactory, agentFactory } from '../utils/factories.js';
+
+function requiredCapabilitiesSatisfied(agent: Record<string, unknown>, task: Record<string, unknown>) {
+  const agentCaps = new Set(((agent.capabilities as string[]) || []).map(c => c.toLowerCase()));
+  return ((task.requiredCapabilities as string[]) || []).every(cap => agentCaps.has(cap.toLowerCase()));
+}
 
 describe('bounty task flow', () => {
-  it('claims an available task in the mock store', () => {
+  it('claims an available task in an isolated mock store', () => {
     const db = createMockDb();
-    db.insertRow('tasks', taskFactory());
-    const claimed = db.updateById('tasks', 'task-1', { status: 'CLAIMED', claimedById: 'agent-1' });
-    expect(claimed.status).toBe('CLAIMED');
-    expect(claimed.claimedById).toBe('agent-1');
+    const agent = db.insertRow('agents', agentFactory());
+    const task = db.insertRow('tasks', taskFactory());
+    const claimed = db.updateById('tasks', task.id as string, { status: 'CLAIMED', claimedById: agent.id });
+    expect(claimed?.status).toBe('CLAIMED');
+    expect(claimed?.claimedById).toBe(agent.id);
   });
 
   it('marks reviewed tasks complete when approved', () => {
     const db = createMockDb();
-    db.insertRow('tasks', taskFactory({ status: 'UNDER_REVIEW' }));
-    const completed = db.updateById('tasks', 'task-1', { status: 'COMPLETED', qualityScore: 92 });
-    expect(completed.status).toBe('COMPLETED');
-    expect(completed.qualityScore).toBeGreaterThanOrEqual(90);
+    const task = db.insertRow('tasks', taskFactory({ status: 'UNDER_REVIEW' }));
+    const completed = db.updateById('tasks', task.id as string, { status: 'COMPLETED', qualityScore: 92 });
+    expect(completed?.status).toBe('COMPLETED');
+    expect(completed?.qualityScore as number).toBeGreaterThanOrEqual(90);
+  });
+
+  it('validates task requirements against a real agent fixture', () => {
+    const agent = agentFactory({ capabilities: ['typescript', 'graphql'] });
+    const task = taskFactory({ requiredCapabilities: ['typescript'] });
+    expect(requiredCapabilitiesSatisfied(agent, task)).toBe(true);
   });
 });
