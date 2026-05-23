@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateStagnationDecay, calculateVelocityBonus, checkContributionCap, getCirculationMetrics, selectRedistributionRecipients } from '../src/economy/antihoarding.js';
+import { calculateAccumulatedStagnationDecay, calculateStagnationDecay, calculateVelocityBonus, checkContributionCap, getCirculationMetrics, selectRedistributionRecipients } from '../src/economy/antihoarding.js';
 
 describe('anti-hoarding economics', () => {
   it('rewards transaction velocity with a capped multiplier', () => {
@@ -11,7 +11,8 @@ describe('anti-hoarding economics', () => {
 
   it('applies stagnation decay only after threshold', () => {
     expect(calculateStagnationDecay({ agentId: 'a', balance: 100_000, transactionCount30d: 0, daysSinceActivity: 20 })).toBe(0);
-    expect(calculateStagnationDecay({ agentId: 'a', balance: 100_000, transactionCount30d: 0, daysSinceActivity: 40 })).toBe(1000);
+    expect(calculateStagnationDecay({ agentId: 'a', balance: 100_000, transactionCount30d: 0, daysSinceActivity: 40 })).toBe(100);
+    expect(calculateStagnationDecay({ agentId: 'a', balance: 100_000, transactionCount30d: 0, daysSinceActivity: 40, daysSinceLastDecay: 3 })).toBe(300);
   });
 
   it('detects soft and hard contribution caps', () => {
@@ -26,6 +27,11 @@ describe('anti-hoarding economics', () => {
       { agentId: 'near', balance: 90_000, transactionCount30d: 1, daysSinceActivity: 1 },
     ], 1100);
     expect(recipients.find(r => r.agentId === 'low')!.amount).toBeGreaterThan(recipients.find(r => r.agentId === 'near')!.amount);
+    expect(recipients.reduce((sum, r) => sum + r.amount, 0)).toBeCloseTo(1100, 8);
+  });
+
+  it('can calculate accumulated decay from the original stagnant balance', () => {
+    expect(calculateAccumulatedStagnationDecay(100_000, 10)).toBe(1000);
   });
 
   it('summarizes circulation health', () => {

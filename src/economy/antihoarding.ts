@@ -11,6 +11,7 @@ export interface AgentEconomyState {
   balance: number;
   transactionCount30d: number;
   daysSinceActivity: number;
+  daysSinceLastDecay?: number;
   contributionScore?: number;
 }
 
@@ -40,9 +41,14 @@ export function calculateVelocityBonus(agent: AgentEconomyState, config: Economy
 }
 
 export function calculateStagnationDecay(agent: AgentEconomyState, config: EconomyConfig = DEFAULT_ECONOMY_CONFIG): number {
-  const idleDays = Math.max(0, agent.daysSinceActivity - config.stagnationThresholdDays);
-  if (idleDays === 0 || agent.balance <= 0) return 0;
-  return Math.min(agent.balance, agent.balance * config.decayRatePerDay * idleDays);
+  if (agent.daysSinceActivity <= config.stagnationThresholdDays || agent.balance <= 0) return 0;
+  const elapsedDays = Math.max(1, agent.daysSinceLastDecay ?? 1);
+  return Math.min(agent.balance, agent.balance * config.decayRatePerDay * elapsedDays);
+}
+
+export function calculateAccumulatedStagnationDecay(balanceAtStagnation: number, daysPastThreshold: number, config: EconomyConfig = DEFAULT_ECONOMY_CONFIG): number {
+  if (balanceAtStagnation <= 0 || daysPastThreshold <= 0) return 0;
+  return Math.min(balanceAtStagnation, balanceAtStagnation * config.decayRatePerDay * daysPastThreshold);
 }
 
 export function checkContributionCap(agent: AgentEconomyState, config: EconomyConfig = DEFAULT_ECONOMY_CONFIG): CapStatus {
@@ -67,12 +73,18 @@ export function checkContributionCap(agent: AgentEconomyState, config: EconomyCo
   return { status: 'ok', excess: 0, earningMultiplier: 1 };
 }
 
-export function selectRedistributionRecipients(agents: AgentEconomyState[], amount: number): Array<{ agentId: string; amount: number }> {
-  const eligible = agents.filter(a => a.balance < DEFAULT_ECONOMY_CONFIG.softCapAmount);
+export function selectRedistributionRecipients(agents: AgentEconomyState[], amount: number, config: EconomyConfig = DEFAULT_ECONOMY_CONFIG): Array<{ agentId: string; amount: number }> {
+  const eligible = agents.filter(a => a.balance < config.softCapAmount);
   if (!eligible.length || amount <= 0) return [];
-  const weights = eligible.map(a => Math.max(1, DEFAULT_ECONOMY_CONFIG.softCapAmount - a.balance));
+  const weights = eligible.map(a => Math.max(1, config.softCapAmount - a.balance));
   const totalWeight = weights.reduce((a, b) => a + b, 0);
-  return eligible.map((agent, i) => ({ agentId: agent.agentId, amount: Math.round((amount * weights[i] / totalWeight) * 100) / 100 }));
+  let distributed = 0;
+  return eligible.map((agent, i) => {
+    const raw = amount * weights[i] / totalWeight;
+    const rounded = i === eligible.length - 1 ? Math.round((amount - distributed) * 1e8) / 1e8 : Math.round(raw * 1e8) / 1e8;
+    distributed += rounded;
+    return { agentId: agent.agentId, amount: rounded };
+  });
 }
 
 export function getCirculationMetrics(agents: AgentEconomyState[], config: EconomyConfig = DEFAULT_ECONOMY_CONFIG) {
