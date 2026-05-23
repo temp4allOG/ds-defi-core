@@ -13,4 +13,10 @@ describe('assessEmergence', () => {
     expect(result.score).toBe(0);
     expect(result.shouldEscalate).toBe(false);
   });
+
+  it('does not match signal terms inside larger words', () => {
+    const result = assessEmergence('Metadata was updated and the undeviated baseline remained unchanged.');
+    expect(result.signals.map(s => s.type)).not.toContain('META_AWARENESS');
+    expect(result.signals.map(s => s.type)).not.toContain('STRATEGIC_DEVIATION');
+  });
 });

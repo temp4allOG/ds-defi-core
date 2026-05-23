@@ -10,6 +10,9 @@ export interface EmergenceAssessment {
   shouldEscalate: boolean;
 }
 
+const SCORE_ESCALATION_THRESHOLD = 30;
+const SIGNAL_COUNT_ESCALATION_THRESHOLD = 3;
+
 const SIGNALS = [
   { type: 'STRATEGIC_DEVIATION', weight: 18, terms: ['changed strategy', 'alternative plan', 'deviated'] },
   { type: 'CREATIVE_SYNTHESIS', weight: 16, terms: ['combined', 'synthesized', 'novel combination'] },
@@ -18,12 +21,25 @@ const SIGNALS = [
   { type: 'CROSS_DOMAIN', weight: 12, terms: ['cross-domain', 'borrowed from', 'analogy'] },
 ];
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function termRegex(term: string): RegExp {
+  return new RegExp(`(^|\\W)${escapeRegExp(term)}(?=$|\\W)`, 'i');
+}
+
 export function assessEmergence(text: string): EmergenceAssessment {
-  const lower = text.toLowerCase();
   const signals = SIGNALS.flatMap(rule => {
-    const hit = rule.terms.find(term => lower.includes(term));
+    const hit = rule.terms.find(term => termRegex(term).test(text));
     return hit ? [{ type: rule.type, weight: rule.weight, evidence: hit }] : [];
   });
   const score = Math.min(100, signals.reduce((sum, s) => sum + s.weight, 0));
-  return { score, signals, shouldEscalate: score >= 30 || signals.length >= 3 };
+  return {
+    score,
+    signals,
+    // Keep both thresholds named: count-based escalation remains useful if future
+    // signals have lower individual weights than the current 12-point minimum.
+    shouldEscalate: score >= SCORE_ESCALATION_THRESHOLD || signals.length >= SIGNAL_COUNT_ESCALATION_THRESHOLD,
+  };
 }
