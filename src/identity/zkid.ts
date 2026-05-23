@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
-export type AgentLevel = 'L0_CANDIDATE' | 'L1_WORKER' | 'L2_EMERGENT' | 'L3_SOVEREIGN';
+export type AgentLevel = 'L0_CANDIDATE' | 'L1_WORKER' | 'L2_EMERGENT' | 'L3_SOVEREIGN' | 'L4_MANAGER';
 export type ProofType = 'level' | 'capability' | 'reputation' | 'composite';
 
 export interface AgentPrivateClaims {
@@ -30,12 +30,13 @@ const LEVEL_RANK: Record<AgentLevel, number> = {
   L1_WORKER: 1,
   L2_EMERGENT: 2,
   L3_SOVEREIGN: 3,
+  L4_MANAGER: 4,
 };
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(',')}}`;
+    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }
@@ -66,8 +67,15 @@ export function createClaimCommitment(identity: ZkIdentity, claims: AgentPrivate
   return sha256(`${identity.commitment}:${stableJson(normalized)}`);
 }
 
-function signProof(type: ProofType, commitment: string, publicInputs: Record<string, unknown>, claimCommitment: string): string {
-  return sha256(`${type}:${commitment}:${stableJson(publicInputs)}:${claimCommitment}`);
+function signProof(type: ProofType, commitment: string, publicInputs: Record<string, unknown>, claimCommitment: string, issuedAt: string): string {
+  return sha256(`${type}:${commitment}:${stableJson(publicInputs)}:${issuedAt}:${claimCommitment}`);
+}
+
+function makeProof(type: ProofType, commitment: string, publicInputs: Record<string, unknown>, claimCommitment: string): ZkProof {
+  const timestamp = new Date();
+  const issuedAt = timestamp.toISOString();
+  const signedInputs = { ...publicInputs, issuedAt };
+  return { type, commitment, proof: signProof(type, commitment, signedInputs, claimCommitment, issuedAt), publicInputs: signedInputs, timestamp };
 }
 
 export function proveLevel(identity: ZkIdentity, claims: AgentPrivateClaims, minLevel: AgentLevel): ZkProof {
@@ -76,25 +84,27 @@ export function proveLevel(identity: ZkIdentity, claims: AgentPrivateClaims, min
   if (rank < minRank) throw new Error('level threshold not satisfied');
   const publicInputs = { minLevel, minRank, satisfied: true };
   const claimCommitment = createClaimCommitment(identity, claims);
-  return { type: 'level', commitment: identity.commitment, proof: signProof('level', identity.commitment, publicInputs, claimCommitment), publicInputs, timestamp: new Date() };
+  return makeProof('level', identity.commitment, publicInputs, claimCommitment);
 }
 
 export function proveCapability(identity: ZkIdentity, claims: AgentPrivateClaims, capability: string): ZkProof {
   if (!claims.capabilities.includes(capability)) throw new Error('capability not satisfied');
   const publicInputs = { capability, satisfied: true };
   const claimCommitment = createClaimCommitment(identity, claims);
-  return { type: 'capability', commitment: identity.commitment, proof: signProof('capability', identity.commitment, publicInputs, claimCommitment), publicInputs, timestamp: new Date() };
+  return makeProof('capability', identity.commitment, publicInputs, claimCommitment);
 }
 
 export function proveReputation(identity: ZkIdentity, claims: AgentPrivateClaims, minScore: number): ZkProof {
   if (claims.reputationScore < minScore) throw new Error('reputation threshold not satisfied');
   const publicInputs = { minScore, satisfied: true };
   const claimCommitment = createClaimCommitment(identity, claims);
-  return { type: 'reputation', commitment: identity.commitment, proof: signProof('reputation', identity.commitment, publicInputs, claimCommitment), publicInputs, timestamp: new Date() };
+  return makeProof('reputation', identity.commitment, publicInputs, claimCommitment);
 }
 
 export function verifyProof(proof: ZkProof, claimCommitment: string): boolean {
-  const expected = signProof(proof.type, proof.commitment, proof.publicInputs, claimCommitment);
+  const issuedAt = typeof proof.publicInputs.issuedAt === 'string' ? proof.publicInputs.issuedAt : proof.timestamp.toISOString();
+  if (proof.timestamp.toISOString() !== issuedAt) return false;
+  const expected = signProof(proof.type, proof.commitment, proof.publicInputs, claimCommitment, issuedAt);
   return safeEqualHex(proof.proof, expected);
 }
 

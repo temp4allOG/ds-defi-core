@@ -27,7 +27,8 @@ describe('hash-based zk identity MVP', () => {
     const identity = generateZkId(claims.agentId, 'identity-secret');
     const commitment = createClaimCommitment(identity, claims);
     const proof = proveCapability(identity, claims, 'typescript');
-    expect(proof.publicInputs).toEqual({ capability: 'typescript', satisfied: true });
+    expect(proof.publicInputs).toMatchObject({ capability: 'typescript', satisfied: true });
+    expect(proof.publicInputs.issuedAt).toBeTypeOf('string');
     expect(verifyProof(proof, commitment)).toBe(true);
   });
 
@@ -43,4 +44,19 @@ describe('hash-based zk identity MVP', () => {
     expect(revealIdentity(identity, claims.agentId, 'identity-secret')).toBe(true);
     expect(revealIdentity(identity, claims.agentId, 'wrong')).toBe(false);
   });
+});
+
+it('rejects timestamp tampering', () => {
+  const identity = generateZkId(claims.agentId, 'identity-secret');
+  const commitment = createClaimCommitment(identity, claims);
+  const proof = proveReputation(identity, claims, 80);
+  const tampered = { ...proof, timestamp: new Date(proof.timestamp.getTime() + 60_000) };
+  expect(verifyProof(tampered, commitment)).toBe(false);
+});
+
+it('supports L4 manager level proofs', () => {
+  const identity = generateZkId(claims.agentId, 'identity-secret');
+  const commitment = createClaimCommitment(identity, { ...claims, level: 'L4_MANAGER' });
+  const proof = proveLevel(identity, { ...claims, level: 'L4_MANAGER' }, 'L3_SOVEREIGN');
+  expect(verifyProof(proof, commitment)).toBe(true);
 });
